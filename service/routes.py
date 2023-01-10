@@ -60,14 +60,16 @@ def create_accounts():
 ######################################################################
 # LIST ALL ACCOUNTS
 ######################################################################
-
-# ... place you code here to LIST accounts ...
-
+@app.route("/accounts", methods=["GET"])
+def list_account():
+    app.logger.info("Request to list all Accounts ")
+    accounts = Account.all()
+    list_account = [account.serialize() for account in accounts]
+    return jsonify(list_account), status.HTTP_200_OK
 
 ######################################################################
 # READ AN ACCOUNT
 ######################################################################
-
 @app.route("/accounts/<id>", methods=["GET"])
 def read_account(id):
     app.logger.info("Request to read an Account with id: %s", id)
@@ -100,7 +102,8 @@ def update_account(id):
 def delete_account(id):
     app.logger.info("Request to delete an Account with id: %s", id)
     account = Account.find(id)
-    account.delete()
+    if account:
+        account.delete()
     return "", status.HTTP_204_NO_CONTENT
 
 ######################################################################
