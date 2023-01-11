@@ -12,12 +12,14 @@ from tests.factories import AccountFactory
 from service.common import status  # HTTP Status Codes
 from service.models import db, Account, init_db
 from service.routes import app
+from service import talisman
 
 DATABASE_URI = os.getenv(
     "DATABASE_URI", "postgresql://postgres:postgres@localhost:5432/postgres"
 )
 
 BASE_URL = "/accounts"
+HTTPS_ENVIRON = {'wsgi.url_scheme': 'https'}
 
 
 ######################################################################
@@ -34,6 +36,7 @@ class TestAccountService(TestCase):
         app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URI
         app.logger.setLevel(logging.CRITICAL)
         init_db(app)
+        talisman.force_https = False
 
     @classmethod
     def tearDownClass(cls):
@@ -121,7 +124,8 @@ class TestAccountService(TestCase):
             json=account.serialize(),
             content_type="test/html"
         )
-        self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
+        self.assertEqual(response.status_code,
+                         status.HTTP_415_UNSUPPORTED_MEDIA_TYPE)
 
     def test_read_account(self):
         """It should read a single Account"""
@@ -156,11 +160,11 @@ class TestAccountService(TestCase):
         self.assertEqual(new_account["date_joined"], str(account.date_joined))
 
         account = accounts[1]
-        new_account["name"]= account.name
-        new_account["email"]= account.email
-        new_account["address"]= account.address
-        new_account["phone_number"]= account.phone_number
-        new_account["date_joined"]= str(account.date_joined)
+        new_account["name"] = account.name
+        new_account["email"] = account.email
+        new_account["address"] = account.address
+        new_account["phone_number"] = account.phone_number
+        new_account["date_joined"] = str(account.date_joined)
         response = self.client.put(
             f"{BASE_URL}/{account.id}",
             json=new_account,
@@ -173,7 +177,6 @@ class TestAccountService(TestCase):
         self.assertEqual(new_account["address"], account.address)
         self.assertEqual(new_account["phone_number"], account.phone_number)
         self.assertEqual(new_account["date_joined"], str(account.date_joined))
-
 
     def test_put_account_not_found(self):
         """It should not Update an Account that is not found"""
@@ -198,16 +201,36 @@ class TestAccountService(TestCase):
     def test_list_account(self):
         """It should list all Accounts"""
         n_accounts = 5
-        accounts = self._create_accounts(n_accounts)
+        _ = self._create_accounts(n_accounts)
         responses = self.client.get(
-                BASE_URL,
-                content_type="application/json"
-            )
+            BASE_URL,
+            content_type="application/json"
+        )
         self.assertEqual(responses.status_code, status.HTTP_200_OK)
         new_accounts = responses.get_json()
         self.assertEqual(len(new_accounts), n_accounts)
-    
+
     def test_method_not_allowed(self):
         """It should not allow an illegal method call"""
         resp = self.client.delete(BASE_URL)
         self.assertEqual(resp.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_security_headers(self):
+        """It should return security headers"""
+        response = self.client.get("/", environ_overrides=HTTPS_ENVIRON)
+        headers = {
+            'X-Frame-Options': 'SAMEORIGIN',
+            'X-XSS-Protection': '1; mode=block',
+            'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy': 'default-src \'self\'; object-src \'none\'',
+            'Referrer-Policy': 'strict-origin-when-cross-origin'
+        }
+        for key, value in headers.items():
+            self.assertEqual(response.headers.get(key), value)
+
+    def test_cors_security(self):
+        """It should return a CORS header"""
+        response = self.client.get('/', environ_overrides=HTTPS_ENVIRON)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Check for the CORS header
+        self.assertEqual(response.headers.get('Access-Control-Allow-Origin'), '*')
